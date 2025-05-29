@@ -65,7 +65,7 @@ The plugin uses environment variables:
 ```yaml
 steps:
   - name: notify-lark
-    image: mobydeck/ci-lark-notification
+    image: 7a6163/ci-lark-notification
     settings:
       webhook_url:
         from_secret: lark_webhook_url

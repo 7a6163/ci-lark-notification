@@ -29,8 +29,8 @@ For creating a Teams Webhook, follow [this guide](https://learn.microsoft.com/en
 
 ```yaml
 steps:
-  - name: notify-teams
-    image: mobydeck/ci-teams-notification
+  - name: notify-lark
+    image: 7a6163/ci-lark-notification
     settings:
       webhook_url: https://outlook.office.com/webhook/...
     when:
@@ -42,11 +42,11 @@ steps:
 
 ```yaml
 steps:
-  - name: notify-teams
-    image: mobydeck/ci-teams-notification
+  - name: notify-lark
+    image: 7a6163/ci-lark-notification
     settings:
       webhook_url:
-        from_secret: teams_webhook_url
+        from_secret: lark_webhook_url
       facts: project,version
       buttons: pipeline,commit
       variables: MY_VAR1,MY_VAR2

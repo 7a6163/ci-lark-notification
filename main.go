@@ -273,6 +273,7 @@ func createActionButtons() []map[string]any {
 func printBuildInfo(projectVersion string) {
 	fmt.Println("\nBuild Info:")
 	fmt.Printf(" PROJECT: %s\n", getEnvOrDefault("CI_REPO", ""))
+	fmt.Printf(" BRANCH:  %s\n", getEnvOrDefault("CI_COMMIT_BRANCH", ""))
 	fmt.Printf(" VERSION: %s\n", projectVersion)
 	fmt.Printf(" STATUS:  %s\n", getEnvOrDefault("DRONE_BUILD_STATUS", ""))
 	fmt.Printf(" DATE:    %s\n", time.Now().UTC().Format(time.RFC3339))
