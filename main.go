@@ -2,14 +2,14 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"os"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,25 +19,49 @@ import (
 func main() {
 	webhookURL := getEnvOrDefault("PLUGIN_WEBHOOK_URL", "")
 	if webhookURL == "" {
-		fmt.Println("Need to set MS Teams Webhook URL")
+		fmt.Println("Need to set Lark Webhook URL")
 		os.Exit(1)
 	}
 
 	projectVersion := getProjectVersion()
-	card := createTeamsCard(projectVersion)
 
-	cardBytes, err := json.Marshal(card)
+	// Check if using signature verification
+	secret := getEnvOrDefault("PLUGIN_SECRET", "")
+	useCard := getEnvOrDefault("PLUGIN_USE_CARD", "true") == "true"
+
+	var message map[string]any
+	if useCard {
+		message = createLarkCard(projectVersion)
+	} else {
+		message = createLarkTextMessage(projectVersion)
+	}
+
+	// Add signature if secret is provided
+	if secret != "" {
+		timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+		sign := generateSignature(timestamp, secret)
+		message["timestamp"] = timestamp
+		message["sign"] = sign
+	}
+
+	messageBytes, err := json.Marshal(message)
 	if err != nil {
-		fmt.Printf("Error creating card JSON: %v\n", err)
+		fmt.Printf("Error creating message JSON: %v\n", err)
 		os.Exit(1)
 	}
 
 	if getEnvOrDefault("PLUGIN_DEBUG", "false") == "true" {
-		printDebugInfo(cardBytes)
+		printDebugInfo(messageBytes)
 	}
 
 	printBuildInfo(projectVersion)
-	sendCard(webhookURL, cardBytes)
+	sendMessage(webhookURL, messageBytes)
+}
+
+func generateSignature(timestamp, secret string) string {
+	stringToSign := fmt.Sprintf("%s\n%s", timestamp, secret)
+	h := hmac.New(sha256.New, []byte(stringToSign))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
 func getProjectVersion() string {
@@ -50,306 +74,197 @@ func getProjectVersion() string {
 	return ""
 }
 
-func createTeamsCard(projectVersion string) map[string]any {
-	return map[string]any{
-		"type": "message",
-		"attachments": []map[string]any{
-			{
-				"contentType": "application/vnd.microsoft.card.adaptive",
-				"contentUrl":  nil,
-				"content": map[string]any{
-					"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-					"type":    "AdaptiveCard",
-					"version": "1.5",
-					"body":    createCardBody(projectVersion),
-					"actions": createCardActions(),
-				},
-			},
-		},
-	}
-}
-
-func getAvatarDataURI(avatarURL string) (string, error) {
-	resp, err := http.Get(avatarURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to download avatar: %w", err)
-	}
-	defer resp.Body.Close()
-
-	imageData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read avatar data: %w", err)
-	}
-
-	contentType := resp.Header.Get("Content-Type")
-	ext := path.Ext(avatarURL)
-	switch {
-	case contentType != "":
-		// Use content type from header
-	case ext != "":
-		contentType = mime.TypeByExtension(ext)
-	default:
-		contentType = http.DetectContentType(imageData)
-	}
-
-	return fmt.Sprintf("data:%s;base64,%s",
-		contentType,
-		base64.StdEncoding.EncodeToString(imageData),
-	), nil
-}
-
-func createCardBody(projectVersion string) []map[string]any {
+func createLarkCard(projectVersion string) map[string]any {
 	status := getEnvOrDefault("DRONE_BUILD_STATUS", "")
-	color := "good"
-	title := "✔ Pipeline succeeded"
+
+	var headerColor, statusIcon, statusText string
 	if status == "failure" {
-		color = "attention"
-		title = "❌ Pipeline failed"
-	}
-	dateStr := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-
-	avatarURL := getEnvOrDefault("CI_COMMIT_AUTHOR_AVATAR", "")
-	var avatarDataURI string
-	if avatarURL != "" {
-		if dataURI, err := getAvatarDataURI(avatarURL); err == nil {
-			avatarDataURI = dataURI
-		} else {
-			fmt.Printf("Warning: Failed to process avatar image: %v\n", err)
-			avatarDataURI = avatarURL
-		}
+		headerColor = "red"
+		statusIcon = "🚨"
+		statusText = "Pipeline Failed"
+	} else {
+		headerColor = "green"
+		statusIcon = "✅"
+		statusText = "Pipeline Succeeded"
 	}
 
-	body := createBaseBody(color, title, avatarDataURI, dateStr, projectVersion)
-
-	if variables := getEnvOrDefault("PLUGIN_VARIABLES", ""); variables != "" {
-		body = appendVariablesTable(body, variables)
-	}
-
-	return body
-}
-
-func createBaseBody(color, title, avatarDataURI, dateStr, projectVersion string) []map[string]any {
-	body := []map[string]any{
+	elements := []map[string]any{
 		{
-			"type":    "Container",
-			"bleed":   true,
-			"spacing": "None",
-			"style":   color,
-			"items": []map[string]any{
-				{
-					"type":   "TextBlock",
-					"text":   title,
-					"weight": "bolder",
-					"size":   "medium",
-					"color":  color,
-				},
-				createAuthorSection(avatarDataURI, dateStr),
+			"tag": "div",
+			"text": map[string]any{
+				"content": fmt.Sprintf("**Project:** %s\n**Author:** %s\n**Version:** %s",
+					getEnvOrDefault("CI_REPO", ""),
+					getEnvOrDefault("CI_COMMIT_AUTHOR", ""),
+					projectVersion),
+				"tag": "lark_md",
+			},
+		},
+		{
+			"tag": "hr",
+		},
+		{
+			"tag": "div",
+			"text": map[string]any{
+				"content": fmt.Sprintf("**Commit Message:**\n%s",
+					strings.Split(getEnvOrDefault("CI_COMMIT_MESSAGE", ""), "\n")[0]),
+				"tag": "lark_md",
 			},
 		},
 	}
 
-	if facts := createFactsSection(projectVersion); facts != nil {
-		body = append(body, facts)
-	}
+	// Add variables if specified
+	if variables := getEnvOrDefault("PLUGIN_VARIABLES", ""); variables != "" {
+		elements = append(elements, map[string]any{
+			"tag": "hr",
+		})
 
-	return body
-}
-
-func createAuthorSection(avatarDataURI, dateStr string) map[string]any {
-	return map[string]any{
-		"type": "ColumnSet",
-		"columns": []map[string]any{
-			{
-				"type":  "Column",
-				"width": "auto",
-				"items": []map[string]any{
-					{
-						"type":  "Image",
-						"url":   avatarDataURI,
-						"size":  "small",
-						"style": "Person",
-					},
-				},
-			},
-			{
-				"type":  "Column",
-				"width": "stretch",
-				"items": []map[string]any{
-					{
-						"type":   "TextBlock",
-						"text":   "@" + getEnvOrDefault("CI_COMMIT_AUTHOR", ""),
-						"weight": "bolder",
-						"wrap":   true,
-					},
-					{
-						"type":     "TextBlock",
-						"spacing":  "None",
-						"text":     fmt.Sprintf("{{DATE(%s, SHORT)}} at {{TIME(%s)}}", dateStr, dateStr),
-						"isSubtle": true,
-						"wrap":     true,
-					},
-				},
-			},
-		},
-	}
-}
-
-func createFactsSection(projectVersion string) map[string]any {
-	// Define available facts
-	allFacts := map[string]map[string]string{
-		"project": {
-			"title": "Project:",
-			"value": getEnvOrDefault("CI_REPO", ""),
-		},
-		"message": {
-			"title": "Message:",
-			"value": strings.Split(getEnvOrDefault("CI_COMMIT_MESSAGE", ""), "\n")[0],
-		},
-		"version": {
-			"title": "Version:",
-			"value": projectVersion,
-		},
-	}
-
-	// Get requested facts
-	var facts []map[string]string
-	requestedFacts := getEnvOrDefault("PLUGIN_FACTS", "")
-	if requestedFacts == "" {
-		// If no facts specified, show all
-		for _, fact := range allFacts {
-			facts = append(facts, fact)
+		varContent := "**Variables:**\n"
+		for _, varName := range strings.Split(variables, ",") {
+			varName = strings.TrimSpace(varName)
+			varContent += fmt.Sprintf("• `%s`: %s\n", varName, getEnvOrDefault(varName, ""))
 		}
+
+		elements = append(elements, map[string]any{
+			"tag": "div",
+			"text": map[string]any{
+				"content": varContent,
+				"tag": "lark_md",
+			},
+		})
+	}
+
+	// Add action buttons
+	actions := createActionButtons()
+	if len(actions) > 0 {
+		elements = append(elements, map[string]any{
+			"tag": "action",
+			"actions": actions,
+		})
+	}
+
+	return map[string]any{
+		"msg_type": "interactive",
+		"card": map[string]any{
+			"header": map[string]any{
+				"title": map[string]any{
+					"content": fmt.Sprintf("%s %s", statusIcon, statusText),
+					"tag": "plain_text",
+				},
+				"template": headerColor,
+			},
+			"elements": elements,
+		},
+	}
+}
+
+func createLarkTextMessage(projectVersion string) map[string]any {
+	status := getEnvOrDefault("DRONE_BUILD_STATUS", "")
+
+	var statusIcon, statusText string
+	if status == "failure" {
+		statusIcon = "🚨"
+		statusText = "PIPELINE FAILED"
 	} else {
-		// Show only requested facts
-		for _, name := range strings.Split(requestedFacts, ",") {
-			name = strings.TrimSpace(name)
-			if fact, exists := allFacts[name]; exists {
-				facts = append(facts, fact)
-			}
+		statusIcon = "✅"
+		statusText = "PIPELINE SUCCEEDED"
+	}
+
+	message := fmt.Sprintf("%s %s\n\n", statusIcon, statusText)
+	message += fmt.Sprintf("📋 Project: %s\n", getEnvOrDefault("CI_REPO", ""))
+	message += fmt.Sprintf("👤 Author: %s\n", getEnvOrDefault("CI_COMMIT_AUTHOR", ""))
+	message += fmt.Sprintf("🏷️ Version: %s\n", projectVersion)
+	message += fmt.Sprintf("💬 Message: %s\n", strings.Split(getEnvOrDefault("CI_COMMIT_MESSAGE", ""), "\n")[0])
+
+	// Add variables if specified
+	if variables := getEnvOrDefault("PLUGIN_VARIABLES", ""); variables != "" {
+		message += "\n📊 Variables:\n"
+		for _, varName := range strings.Split(variables, ",") {
+			varName = strings.TrimSpace(varName)
+			message += fmt.Sprintf("• %s: %s\n", varName, getEnvOrDefault(varName, ""))
 		}
 	}
 
-	// Return nil if no facts to show
-	if len(facts) == 0 {
-		return nil
+	// Add links
+	if pipelineURL := getEnvOrDefault("CI_PIPELINE_URL", ""); pipelineURL != "" {
+		message += fmt.Sprintf("\n🔗 Pipeline: %s", pipelineURL)
 	}
 
 	return map[string]any{
-		"type": "Container",
-		"items": []map[string]any{
-			{
-				"type":  "FactSet",
-				"facts": facts,
-			},
+		"msg_type": "text",
+		"content": map[string]any{
+			"text": message,
 		},
 	}
 }
 
-func appendVariablesTable(body []map[string]any, variables string) []map[string]any {
-	body = append(body, map[string]any{
-		"type":   "TextBlock",
-		"text":   "Variables:",
-		"weight": "bolder",
-		"wrap":   true,
-	})
-
-	var rows []map[string]any
-	for _, varName := range strings.Split(variables, ",") {
-		varName = strings.TrimSpace(varName)
-		rows = append(rows, createTableRow(varName, getEnvOrDefault(varName, "")))
-	}
-
-	body = append(body, map[string]any{
-		"type": "Table",
-		"columns": []map[string]any{
-			{"width": 1},
-			{"width": 2},
-		},
-		"spacing":           "Small",
-		"showGridLines":     false,
-		"firstRowAsHeaders": false,
-		"rows":              rows,
-	})
-
-	return body
-}
-
-func createTableRow(name, value string) map[string]any {
-	return map[string]any{
-		"type": "TableRow",
-		"cells": []map[string]any{
-			createTableCell(name),
-			createTableCell(value),
-		},
-		"style": "default",
-	}
-}
-
-func createTableCell(text string) map[string]any {
-	return map[string]any{
-		"type": "TableCell",
-		"items": []map[string]any{
-			{
-				"type":     "TextBlock",
-				"text":     text,
-				"wrap":     true,
-				"weight":   "Default",
-				"fontType": "Monospace",
-			},
-		},
-	}
-}
-
-func createCardActions() []map[string]any {
-	// Define available actions
-	allActions := map[string]any{
-		"pipeline": map[string]any{
-			"type":  "Action.OpenUrl",
-			"title": "View Pipeline",
-			"url":   getEnvOrDefault("CI_PIPELINE_URL", ""),
-		},
-	}
-
-	// Add commit/release action
-	actionURL := getEnvOrDefault("CI_PIPELINE_FORGE_URL", "")
-
-	if tag := getEnvOrDefault("CI_COMMIT_TAG", ""); tag != "" {
-		actionURL = fmt.Sprintf("%s/releases/tag/%s", getEnvOrDefault("CI_REPO_URL", ""), tag)
-		allActions["release"] = map[string]any{
-			"type":  "Action.OpenUrl",
-			"title": "View Release",
-			"url":   actionURL,
-		}
-	} else {
-		allActions["commit"] = map[string]any{
-			"type":  "Action.OpenUrl",
-			"title": "View Commit",
-			"url":   actionURL,
-		}
-	}
-
-	// Get requested buttons
+func createActionButtons() []map[string]any {
 	var actions []map[string]any
-	requestedButtons := getEnvOrDefault("PLUGIN_BUTTONS", "")
 
-	if requestedButtons == "" {
-		// If no buttons specified, show all with pipeline first
-		if pipeline, exists := allActions["pipeline"]; exists {
-			actions = append(actions, pipeline.(map[string]any))
-		}
-		for name, action := range allActions {
-			if name != "pipeline" {
-				actions = append(actions, action.(map[string]any))
-			}
+	// Pipeline button
+	if pipelineURL := getEnvOrDefault("CI_PIPELINE_URL", ""); pipelineURL != "" {
+		actions = append(actions, map[string]any{
+			"tag": "button",
+			"text": map[string]any{
+				"content": "View Pipeline",
+				"tag": "plain_text",
+			},
+			"type": "primary",
+			"url": pipelineURL,
+		})
+	}
+
+	// Commit/Release button
+	if tag := getEnvOrDefault("CI_COMMIT_TAG", ""); tag != "" {
+		// Release button
+		if repoURL := getEnvOrDefault("CI_REPO_URL", ""); repoURL != "" {
+			releaseURL := fmt.Sprintf("%s/releases/tag/%s", repoURL, tag)
+			actions = append(actions, map[string]any{
+				"tag": "button",
+				"text": map[string]any{
+					"content": "View Release",
+					"tag": "plain_text",
+				},
+				"type": "default",
+				"url": releaseURL,
+			})
 		}
 	} else {
-		// Show buttons in the order specified in PLUGIN_BUTTONS
-		for _, name := range strings.Split(requestedButtons, ",") {
+		// Commit button
+		if commitURL := getEnvOrDefault("CI_PIPELINE_FORGE_URL", ""); commitURL != "" {
+			actions = append(actions, map[string]any{
+				"tag": "button",
+				"text": map[string]any{
+					"content": "View Commit",
+					"tag": "plain_text",
+				},
+				"type": "default",
+				"url": commitURL,
+			})
+		}
+	}
+
+	// Filter buttons based on PLUGIN_BUTTONS if specified
+	requestedButtons := getEnvOrDefault("PLUGIN_BUTTONS", "")
+	if requestedButtons != "" {
+		var filteredActions []map[string]any
+		buttonNames := strings.Split(requestedButtons, ",")
+
+		for _, name := range buttonNames {
 			name = strings.TrimSpace(name)
-			if action, exists := allActions[name]; exists {
-				actions = append(actions, action.(map[string]any))
+			for _, action := range actions {
+				if text, ok := action["text"].(map[string]any); ok {
+					if content, ok := text["content"].(string); ok {
+						if (name == "pipeline" && strings.Contains(content, "Pipeline")) ||
+						   (name == "commit" && strings.Contains(content, "Commit")) ||
+						   (name == "release" && strings.Contains(content, "Release")) {
+							filteredActions = append(filteredActions, action)
+							break
+						}
+					}
+				}
 			}
 		}
+		return filteredActions
 	}
 
 	return actions
@@ -363,26 +278,35 @@ func printBuildInfo(projectVersion string) {
 	fmt.Printf(" DATE:    %s\n", time.Now().UTC().Format(time.RFC3339))
 }
 
-func sendCard(webhookURL string, cardBytes []byte) {
-	fmt.Println("\nSending to Microsoft Teams...")
+func sendMessage(webhookURL string, messageBytes []byte) {
+	fmt.Println("\nSending to Lark...")
 
-	resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(cardBytes))
+	resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(messageBytes))
 	if err != nil {
-		fmt.Printf("Error sending to Teams: %v\n", err)
+		fmt.Printf("Error sending to Lark: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Error response from Teams: %s\n", string(body))
+		fmt.Printf("Error response from Lark: %s\n", string(body))
 		os.Exit(1)
+	}
+
+	// Parse response to check if successful
+	var response map[string]any
+	if err := json.Unmarshal(body, &response); err == nil {
+		if code, ok := response["code"].(float64); ok && code != 0 {
+			fmt.Printf("Lark API error: %v\n", response)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Println("Done!")
 }
 
-// getEnvOrDefault returns environment variable value or default if not set
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -390,36 +314,20 @@ func getEnvOrDefault(key, defaultValue string) string {
 	return defaultValue
 }
 
-// parseTimestamp parses unix timestamp from string
-func parseTimestamp(timestamp string) time.Time {
-	if timestamp == "" {
-		return time.Now()
-	}
-	ts, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		return time.Now()
-	}
-	return time.Unix(ts, 0)
-}
-
-func printDebugInfo(cardBytes []byte) {
+func printDebugInfo(messageBytes []byte) {
 	fmt.Println("\n** DEBUG ENABLED **")
 	fmt.Println("\nEnvironment Variables:")
 
-	// Get and sort environment variables
 	envVars := os.Environ()
 	sort.Strings(envVars)
 
-	// Print sorted variables
 	for _, env := range envVars {
-		// Split into key=value
 		parts := strings.SplitN(env, "=", 2)
 		if len(parts) == 2 {
-			// Print in aligned format
 			fmt.Printf(" %-30s = %s\n", parts[0], parts[1])
 		}
 	}
 
-	fmt.Println("\nCard JSON:")
-	fmt.Println(string(cardBytes))
+	fmt.Println("\nLark Message JSON:")
+	fmt.Println(string(messageBytes))
 }
