@@ -17,18 +17,18 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -38,9 +38,9 @@ jobs:
         id: docker_tags
         run: |
           if [[ $GITHUB_REF == refs/heads/main ]]; then
-            echo "tags=ghcr.io/${{ github.repository_owner }}/brakeman:latest" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/${{ github.repository_owner }}/ci-lark-notification:latest" >> $GITHUB_OUTPUT
           elif [[ $GITHUB_REF == refs/tags/* ]]; then
-            echo "tags=ghcr.io/${{ github.repository_owner }}/brakeman:latest,ghcr.io/${{ github.repository_owner }}/brakeman:${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/${{ github.repository_owner }}/ci-lark-notification:latest,ghcr.io/${{ github.repository_owner }}/ci-lark-notification:${{ github.ref_name }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Build and push Docker image to GHCR
@@ -50,9 +50,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.docker_tags.outputs.tags }}
-          build-args: |
-            BRAKEMAN_VERSION=7.0.2
-            REVIEWDOG_VERSION=v0.20.3
 
   deploy:
     needs: build-and-push
@@ -91,9 +88,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/brakeman:${{ github.ref_name }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/brakeman:${{ github.ref_name }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/brakeman:latest
-          build-args: |
-            BRAKEMAN_VERSION=7.0.2
-            REVIEWDOG_VERSION=v0.20.3
+            ghcr.io/${{ github.repository_owner }}/ci-lark-notification:${{ github.ref_name }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/ci-lark-notification:${{ github.ref_name }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/ci-lark-notification:latest
