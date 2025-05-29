@@ -92,8 +92,9 @@ func createLarkCard(projectVersion string) map[string]any {
 		{
 			"tag": "div",
 			"text": map[string]any{
-				"content": fmt.Sprintf("**Project:** %s\n**Author:** %s\n**Version:** %s",
+				"content": fmt.Sprintf("**Project:** %s\n**Branch:** %s\n**Author:** %s\n**Version:** %s",
 					getEnvOrDefault("CI_REPO", ""),
+					getEnvOrDefault("CI_COMMIT_BRANCH", ""),
 					getEnvOrDefault("CI_COMMIT_AUTHOR", ""),
 					projectVersion),
 				"tag": "lark_md",
@@ -171,6 +172,7 @@ func createLarkTextMessage(projectVersion string) map[string]any {
 
 	message := fmt.Sprintf("%s %s\n\n", statusIcon, statusText)
 	message += fmt.Sprintf("📋 Project: %s\n", getEnvOrDefault("CI_REPO", ""))
+	message += fmt.Sprintf("🌿 Branch: %s\n", getEnvOrDefault("CI_COMMIT_BRANCH", ""))
 	message += fmt.Sprintf("👤 Author: %s\n", getEnvOrDefault("CI_COMMIT_AUTHOR", ""))
 	message += fmt.Sprintf("🏷️ Version: %s\n", projectVersion)
 	message += fmt.Sprintf("💬 Message: %s\n", strings.Split(getEnvOrDefault("CI_COMMIT_MESSAGE", ""), "\n")[0])
