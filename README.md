@@ -35,7 +35,7 @@ The plugin uses environment variables:
 
 - `CI_REPO` - Repository name
 - `CI_REPO_URL` - Repository URL
-- ~~`CI_PIPELINE_STATUS`~~ `CI_PREV_PIPELINE_STATUS` - Pipeline status
+- ~~`CI_PIPELINE_STATUS`~~ `DRONE_BUILD_STATUS` - Pipeline status
   * `CI_PIPELINE_STATUS` is missing in 3.1.0 :(
 - `CI_PIPELINE_URL` - Pipeline URL
 - `CI_PIPELINE_FORGE_URL` - Forge commit URL

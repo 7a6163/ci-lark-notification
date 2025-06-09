@@ -75,7 +75,7 @@ func getProjectVersion() string {
 }
 
 func createLarkCard(projectVersion string) map[string]any {
-	status := getEnvOrDefault("CI_PREV_PIPELINE_STATUS", "")
+	status := getEnvOrDefault("DRONE_BUILD_STATUS", "")
 
 	var headerColor, statusIcon, statusText string
 	if status == "failure" {
@@ -159,7 +159,7 @@ func createLarkCard(projectVersion string) map[string]any {
 }
 
 func createLarkTextMessage(projectVersion string) map[string]any {
-	status := getEnvOrDefault("CI_PREV_PIPELINE_STATUS", "")
+	status := getEnvOrDefault("DRONE_BUILD_STATUS", "")
 
 	var statusIcon, statusText string
 	if status == "failure" {
@@ -277,7 +277,7 @@ func printBuildInfo(projectVersion string) {
 	fmt.Printf(" PROJECT: %s\n", getEnvOrDefault("CI_REPO", ""))
 	fmt.Printf(" BRANCH:  %s\n", getEnvOrDefault("CI_COMMIT_BRANCH", ""))
 	fmt.Printf(" VERSION: %s\n", projectVersion)
-	fmt.Printf(" STATUS:  %s\n", getEnvOrDefault("CI_PREV_PIPELINE_STATUS", ""))
+	fmt.Printf(" STATUS:  %s\n", getEnvOrDefault("DRONE_BUILD_STATUS", ""))
 	fmt.Printf(" DATE:    %s\n", time.Now().UTC().Format(time.RFC3339))
 }
 
