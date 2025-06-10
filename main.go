@@ -75,7 +75,8 @@ func getProjectVersion() string {
 }
 
 func createLarkCard(projectVersion string) map[string]any {
-	status := getEnvOrDefault("DRONE_BUILD_STATUS", "")
+	// Allow overriding build status via plugin settings
+	status := getEnvOrDefault("PLUGIN_STATUS", getEnvOrDefault("DRONE_BUILD_STATUS", ""))
 
 	var headerColor, statusIcon, statusText string
 	if status == "failure" {
@@ -159,7 +160,8 @@ func createLarkCard(projectVersion string) map[string]any {
 }
 
 func createLarkTextMessage(projectVersion string) map[string]any {
-	status := getEnvOrDefault("DRONE_BUILD_STATUS", "")
+	// Allow overriding build status via plugin settings
+	status := getEnvOrDefault("PLUGIN_STATUS", getEnvOrDefault("DRONE_BUILD_STATUS", ""))
 
 	var statusIcon, statusText string
 	if status == "failure" {

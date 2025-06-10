@@ -1,5 +1,8 @@
 # Lark Notification
 
+[![Test](https://github.com/7a6163/ci-lark-notification/actions/workflows/test.yml/badge.svg)](https://github.com/7a6163/ci-lark-notification/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/7a6163/ci-lark-notification/branch/main/graph/badge.svg)](https://codecov.io/gh/7a6163/ci-lark-notification)
+
 Docker image / CI plugin to send pipeline notifications to Lark (Feishu) using Interactive Message Cards. Designed to work with Woodpecker CI, but can be used with any CI system that supports Docker images.
 
 ## Features
@@ -36,7 +39,7 @@ The plugin uses environment variables:
 - `CI_REPO` - Repository name
 - `CI_REPO_URL` - Repository URL
 - ~~`CI_PIPELINE_STATUS`~~ `DRONE_BUILD_STATUS` - Pipeline status
-  * `CI_PIPELINE_STATUS` is missing in 3.1.0 :(
+  * `CI_PIPELINE_STATUS` is missing in 3.1.0 :( (see [woodpecker-ci/woodpecker#4337](https://github.com/woodpecker-ci/woodpecker/issues/4337))
 - `CI_PIPELINE_URL` - Pipeline URL
 - `CI_PIPELINE_FORGE_URL` - Forge commit URL
 - `CI_COMMIT_SHA` - Commit SHA (shortened to 7 characters)
@@ -52,6 +55,7 @@ The plugin uses environment variables:
 - `webhook_url` (required) - Lark webhook URL
 - `secret` (optional) - Secret for signature verification
 - `use_card` (optional) - Use interactive card instead of text message (default: true)
+- `status` (optional) - Override the build status (e.g., "success" or "failure") - useful for creating different notification styles
 - `debug` (optional) - Enable debug output of the message JSON
 - `buttons` (optional) - Comma-separated list of buttons to display:
   - `pipeline` - Link to pipeline
@@ -77,6 +81,41 @@ steps:
       debug: true
     when:
       - status: [success, failure]
+        event: [manual, push, tag]
+```
+
+### Separate Success/Failure Notifications
+
+You can create separate notification steps for success and failure, allowing for different configurations for each status:
+
+```yaml
+steps:
+  - name: notify-lark-success
+    image: 7a6163/ci-lark-notification
+    settings:
+      webhook_url:
+        from_secret: lark_webhook_url
+      status: success  # Explicitly set status
+      facts: project,version
+      buttons: pipeline,commit
+      variables: MY_VAR1,MY_VAR2
+      debug: true
+    when:
+      - status: [success]
+        event: [manual, push, tag]
+
+  - name: notify-lark-failure
+    image: 7a6163/ci-lark-notification
+    settings:
+      webhook_url:
+        from_secret: lark_webhook_url
+      status: failure  # Explicitly set status
+      facts: project,version
+      buttons: pipeline,commit
+      variables: MY_VAR1,MY_VAR2
+      debug: true
+    when:
+      - status: [failure]
         event: [manual, push, tag]
 ```
 
