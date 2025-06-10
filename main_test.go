@@ -188,6 +188,92 @@ func TestCreateLarkTextMessage_StatusOverride(t *testing.T) {
 	}
 }
 
+func TestGetProjectVersion(t *testing.T) {
+	// Test with tag
+	os.Setenv("CI_COMMIT_TAG", "v1.0.0")
+	os.Setenv("CI_COMMIT_SHA", "abcdef1234567890")
+	defer func() {
+		os.Unsetenv("CI_COMMIT_TAG")
+		os.Unsetenv("CI_COMMIT_SHA")
+	}()
+	
+	if version := getProjectVersion(); version != "v1.0.0" {
+		t.Errorf("Expected 'v1.0.0', got '%s'", version)
+	}
+	
+	// Test with SHA only
+	os.Unsetenv("CI_COMMIT_TAG")
+	if version := getProjectVersion(); version != "abcdef1" {
+		t.Errorf("Expected 'abcdef1', got '%s'", version)
+	}
+	
+	// Test with no env vars
+	os.Unsetenv("CI_COMMIT_SHA")
+	if version := getProjectVersion(); version != "" {
+		t.Errorf("Expected empty string, got '%s'", version)
+	}
+}
+
+func TestCreateActionButtons(t *testing.T) {
+	// Setup test environment
+	os.Setenv("CI_PIPELINE_URL", "https://example.com/pipeline")
+	os.Setenv("CI_COMMIT_TAG", "v1.0.0")
+	os.Setenv("CI_REPO_URL", "https://github.com/user/repo")
+	defer func() {
+		os.Unsetenv("CI_PIPELINE_URL")
+		os.Unsetenv("CI_COMMIT_TAG")
+		os.Unsetenv("CI_REPO_URL")
+		os.Unsetenv("PLUGIN_BUTTONS")
+	}()
+	
+	// Test with all buttons
+	actions := createActionButtons()
+	if len(actions) != 2 {
+		t.Errorf("Expected 2 buttons, got %d", len(actions))
+	}
+	
+	// Test with filtered buttons
+	os.Setenv("PLUGIN_BUTTONS", "pipeline")
+	actions = createActionButtons()
+	if len(actions) != 1 {
+		t.Errorf("Expected 1 button, got %d", len(actions))
+	}
+	
+	// Test with commit instead of tag
+	os.Unsetenv("CI_COMMIT_TAG")
+	os.Unsetenv("PLUGIN_BUTTONS")
+	os.Setenv("CI_PIPELINE_FORGE_URL", "https://github.com/user/repo/commit/abc123")
+	defer os.Unsetenv("CI_PIPELINE_FORGE_URL")
+	
+	actions = createActionButtons()
+	if len(actions) != 2 {
+		t.Errorf("Expected 2 buttons, got %d", len(actions))
+	}
+}
+
+func TestPrintBuildInfo(t *testing.T) {
+	// This is mostly a visual test, but we can at least ensure it doesn't crash
+	os.Setenv("CI_REPO", "test-repo")
+	os.Setenv("CI_COMMIT_BRANCH", "main")
+	os.Setenv("DRONE_BUILD_STATUS", "success")
+	defer func() {
+		os.Unsetenv("CI_REPO")
+		os.Unsetenv("CI_COMMIT_BRANCH")
+		os.Unsetenv("DRONE_BUILD_STATUS")
+	}()
+	
+	// Just make sure it doesn't panic
+	printBuildInfo("v1.0.0")
+}
+
+func TestPrintDebugInfo(t *testing.T) {
+	// This is mostly a visual test, but we can at least ensure it doesn't crash
+	messageBytes := []byte(`{"msg_type":"text","content":{"text":"Test message"}}`)
+	
+	// Just make sure it doesn't panic
+	printDebugInfo(messageBytes)
+}
+
 // Helper function for Go versions before 1.21 which don't have min in standard library
 func min(a, b int) int {
 	if a < b {
