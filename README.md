@@ -1,7 +1,7 @@
 # Lark Notification
 
 [![Test](https://github.com/7a6163/ci-lark-notification/actions/workflows/test.yml/badge.svg)](https://github.com/7a6163/ci-lark-notification/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/7a6163/ci-lark-notification/branch/main/graph/badge.svg)](https://codecov.io/gh/7a6163/ci-lark-notification)
+[![codecov](https://codecov.io/gh/7a6163/ci-lark-notification/graph/badge.svg?token=58YZVDKPN3)](https://codecov.io/gh/7a6163/ci-lark-notification)
 
 Docker image / CI plugin to send pipeline notifications to Lark (Feishu) using Interactive Message Cards. Designed to work with Woodpecker CI, but can be used with any CI system that supports Docker images.
 
