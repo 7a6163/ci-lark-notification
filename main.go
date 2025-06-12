@@ -58,7 +58,11 @@ func main() {
 	}
 
 	printBuildInfo(projectVersion)
-	sendMessage(webhookURL, messageBytes)
+	
+	// Only send message if webhook URL is provided
+	if webhookURL != "" {
+		sendMessage(webhookURL, messageBytes)
+	}
 }
 
 func generateSignature(timestamp, secret string) string {
