@@ -9,7 +9,6 @@
 *.test
 
 # Output of the go coverage tool
-coverage.out
 coverage.txt
 *.out
 

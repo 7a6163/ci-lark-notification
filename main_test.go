@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 )
@@ -252,11 +256,11 @@ func TestCreateActionButtons(t *testing.T) {
 
 func TestPrintBuildInfo(t *testing.T) {
 	// This is mostly a visual test, but we can at least ensure it doesn't crash
-	os.Setenv("CI_REPO", "test-repo")
+	os.Setenv("CI_REPO_NAME", "test-repo")
 	os.Setenv("CI_COMMIT_BRANCH", "main")
 	os.Setenv("DRONE_BUILD_STATUS", "success")
 	defer func() {
-		os.Unsetenv("CI_REPO")
+		os.Unsetenv("CI_REPO_NAME")
 		os.Unsetenv("CI_COMMIT_BRANCH")
 		os.Unsetenv("DRONE_BUILD_STATUS")
 	}()
@@ -271,6 +275,141 @@ func TestPrintDebugInfo(t *testing.T) {
 	
 	// Just make sure it doesn't panic
 	printDebugInfo(messageBytes)
+}
+
+func TestMain_MissingWebhookURL(t *testing.T) {
+	// Save original osExit and restore it after the test
+	originalOsExit := osExit
+	defer func() { osExit = originalOsExit }()
+
+	// Clear any existing environment variables
+	os.Unsetenv("PLUGIN_WEBHOOK_URL")
+
+	// Mock os.Exit
+	exitCalled := false
+	exitCode := 0
+	osExit = func(code int) {
+		exitCalled = true
+		exitCode = code
+	}
+
+	// Call main
+	main()
+
+	// Verify that os.Exit was called with the expected code
+	if !exitCalled {
+		t.Error("Expected os.Exit to be called")
+	}
+	if exitCode != 1 {
+		t.Errorf("Expected exit code 1, got %d", exitCode)
+	}
+}
+
+func TestMain_WithWebhook(t *testing.T) {
+	// Create a test server
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code": 0, "message": "success"}`)) // Lark API success response
+	}))
+	defer testServer.Close()
+
+	// Save original osExit and restore it after the test
+	originalOsExit := osExit
+	defer func() { osExit = originalOsExit }()
+
+	// Set up environment variables
+	os.Setenv("PLUGIN_WEBHOOK_URL", testServer.URL)
+	os.Setenv("CI_REPO_NAME", "test-repo")
+	os.Setenv("CI_COMMIT_BRANCH", "main")
+	os.Setenv("CI_COMMIT_SHA", "abcdef1234567890")
+	os.Setenv("DRONE_BUILD_STATUS", "success")
+	defer func() {
+		os.Unsetenv("PLUGIN_WEBHOOK_URL")
+		os.Unsetenv("CI_REPO_NAME")
+		os.Unsetenv("CI_COMMIT_BRANCH")
+		os.Unsetenv("CI_COMMIT_SHA")
+		os.Unsetenv("DRONE_BUILD_STATUS")
+	}()
+
+	// Mock os.Exit to prevent actual exit
+	exitCalled := false
+	osExit = func(code int) {
+		exitCalled = true
+	}
+
+	// Call main
+	main()
+
+	// Verify that os.Exit was not called
+	if exitCalled {
+		t.Error("os.Exit should not have been called")
+	}
+}
+
+func TestSendMessage(t *testing.T) {
+	// Create a test server that mimics Lark API
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify that the request is a POST
+		if r.Method != http.MethodPost {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+
+		// Verify that the content type is application/json
+		contentType := r.Header.Get("Content-Type")
+		if contentType != "application/json" && contentType != "" {
+			t.Errorf("Expected Content-Type application/json, got %s", contentType)
+		}
+
+		// Read the request body
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("Failed to read request body: %v", err)
+		}
+
+		// Verify that the body is valid JSON
+		var requestData map[string]interface{}
+		if err := json.Unmarshal(body, &requestData); err != nil {
+			t.Fatalf("Request body is not valid JSON: %v", err)
+		}
+
+		// Return a successful response
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"code": 0, "message": "success"}`)) // Lark API success response
+	}))
+	defer testServer.Close()
+
+	// Test with success response
+	messageBytes := []byte(`{"msg_type":"text","content":{"text":"Test message"}}`)
+	sendMessage(testServer.URL, messageBytes)
+
+	// Test with error response
+	errorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"code": 1, "message": "error"}`)) // Lark API error response
+	}))
+	defer errorServer.Close()
+
+	// We need to use a custom exit function to prevent the test from exiting
+	originalOsExit := osExit
+	defer func() { osExit = originalOsExit }()
+	
+	exitCalled := false
+	osExit = func(code int) {
+		exitCalled = true
+		if code != 1 {
+			t.Errorf("Expected exit code 1, got %d", code)
+		}
+	}
+
+	// This should call osExit(1) due to the error response
+	sendMessage(errorServer.URL, messageBytes)
+
+	if !exitCalled {
+		t.Error("Expected os.Exit to be called")
+	}
 }
 
 // Helper function for Go versions before 1.21 which don't have min in standard library

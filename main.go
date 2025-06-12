@@ -16,11 +16,14 @@ import (
 	"time"
 )
 
+// osExit is a variable for os.Exit that can be overridden in tests
+var osExit = os.Exit
+
 func main() {
 	webhookURL := getEnvOrDefault("PLUGIN_WEBHOOK_URL", "")
 	if webhookURL == "" {
 		fmt.Println("Need to set Lark Webhook URL")
-		os.Exit(1)
+		osExit(1)
 	}
 
 	projectVersion := getProjectVersion()
@@ -47,7 +50,7 @@ func main() {
 	messageBytes, err := json.Marshal(message)
 	if err != nil {
 		fmt.Printf("Error creating message JSON: %v\n", err)
-		os.Exit(1)
+		osExit(1)
 	}
 
 	if getEnvOrDefault("PLUGIN_DEBUG", "false") == "true" {
@@ -55,7 +58,11 @@ func main() {
 	}
 
 	printBuildInfo(projectVersion)
-	sendMessage(webhookURL, messageBytes)
+	
+	// Only send message if webhook URL is provided
+	if webhookURL != "" {
+		sendMessage(webhookURL, messageBytes)
+	}
 }
 
 func generateSignature(timestamp, secret string) string {
@@ -144,12 +151,15 @@ func createLarkCard(projectVersion string) map[string]any {
 		})
 	}
 
+	projectName := getEnvOrDefault("CI_REPO_NAME", "")
+	headerTitle := fmt.Sprintf("%s - %s %s", projectName, statusIcon, statusText)
+
 	return map[string]any{
 		"msg_type": "interactive",
 		"card": map[string]any{
 			"header": map[string]any{
 				"title": map[string]any{
-					"content": fmt.Sprintf("%s %s", statusIcon, statusText),
+					"content": headerTitle,
 					"tag": "plain_text",
 				},
 				"template": headerColor,
@@ -289,7 +299,7 @@ func sendMessage(webhookURL string, messageBytes []byte) {
 	resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(messageBytes))
 	if err != nil {
 		fmt.Printf("Error sending to Lark: %v\n", err)
-		os.Exit(1)
+		osExit(1)
 	}
 	defer resp.Body.Close()
 
@@ -297,7 +307,7 @@ func sendMessage(webhookURL string, messageBytes []byte) {
 
 	if resp.StatusCode != http.StatusOK {
 		fmt.Printf("Error response from Lark: %s\n", string(body))
-		os.Exit(1)
+		osExit(1)
 	}
 
 	// Parse response to check if successful
@@ -305,7 +315,7 @@ func sendMessage(webhookURL string, messageBytes []byte) {
 	if err := json.Unmarshal(body, &response); err == nil {
 		if code, ok := response["code"].(float64); ok && code != 0 {
 			fmt.Printf("Lark API error: %v\n", response)
-			os.Exit(1)
+			osExit(1)
 		}
 	}
 

@@ -10,13 +10,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
           cache: true
+          cache-dependency-path: go.sum
+        continue-on-error: true
 
       - name: Test with coverage
         run: go test -coverprofile=coverage.txt
